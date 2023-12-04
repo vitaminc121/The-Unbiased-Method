@@ -1,0 +1,321 @@
+## 1. sample size of the study
+N0 <- 500      # patients in Z=0, should be set according to background
+set.seed(121)   # for obtaining the same results
+
+# 2. values of covariates, the values are set should be comsistent with the context
+set.seed(121)
+X1 <- rnorm(N0, 35, 2)                 # covariate 1,  age of individuals
+set.seed(221)
+X2 <- rnorm(N0, 1.6, 0.05)               # covariate 2,  heights of individuals
+set.seed(321)
+X3 <- rnorm(N0, 0.25, 0.05)                 # covariate 3,  lipids of individuals
+set.seed(421)
+X4 <- rnorm(N0, 80, 10)                # covariate 4,  blood pressure of individuals
+set.seed(521)
+X5 <- rnorm(N0, 45, 2.5)               # covariate 5,  weights of individuals
+
+# 3. values of clinical behaviours in Z=0, also should consistent with the context
+set.seed(121)
+W1 <- as.factor(rbinom(N0, 1, 0.55))  # clinical behaviour 1,  the lump thickening
+set.seed(221)
+W2 <- as.factor(rbinom(N0, 1, 0.45))    # clinical behaviour 2,  changes of appearance of breast
+set.seed(321)
+W3 <- rlnorm(N0, 1.5, 0.2)               # clinical behaviour 3,  the antigen concentration
+set.seed(421)
+W4 <- rnorm(N0, 80, 10)             # clinical behaviour 4,  the antibody concentration
+set.seed(521)
+W5 <- rnorm(N0, 50, 5)                # clinical behaviour 5,  the protein concentration
+
+# 4. generate the dataset with the form like Table 6 in the manuscript
+set.seed(121)
+S <- as.factor(rbinom(N0, 1, 0.4)) # we set the probability of S is 0.4 in Z=0,  only for simulation
+set.seed(121)
+Y <- as.factor(rbinom(N0, 1, 0.65)) # we set the probability of Y=1 is 0.65 in Z=0,  only for simulation
+set.seed(121)
+SY <- as.factor(rbinom(N0, 1, 0.3)) # we set the probability of SY is 0.3 in Z=0,  only for simulation
+df0 <- data.frame(X1=X1, X2=X2, X3=X3, X4=X4, X5=X5,
+                  W1=W1, W2=W2, W3=W3, W4=W4, W5=W5,
+                  S=S, Y=Y, SY=SY)
+colnames(df0) <- c('X1','X2','X3','X4','X5','W1','W2','W3','W4','W5','S','Y','SY')
+
+# 5. the combined outcome for individual, a binary outcome, SY=1(S=0,Y=1), SY=0 others.
+# this module fit the value of SY using all X and W, but this is depend on the specific designs.
+# specifically, there is no necessity to include all of them.
+# in this step, we need model for SY using X and W because we need to bridge SY and X,W for 
+# simulation. However, this step can be ignored when using a real data in whcih the relationship 
+# between SY and X,W existed by nature.
+
+# the following processes are used in stage 1
+# 5.1 first, we use Boruta to find features
+# install.packages('Boruta')  ## if do not install this package
+library(Boruta)  # load the package
+
+# Perform Boruta search
+set.seed(21)
+boruta_output <- Boruta(SY ~ X1+X2+X3+X4+X5+W1+W2+W3+W4+W5, data=na.omit(df0), doTrace=0)
+
+# find features which have the significant or potential variable
+boruta_signif <- getSelectedAttributes(boruta_output, withTentative = TRUE)
+print(boruta_signif) # show the significance 
+
+# Do a tentative rough fix
+roughFixMod <- TentativeRoughFix(boruta_output)
+boruta_signif <- getSelectedAttributes(roughFixMod)
+print(boruta_signif)
+
+# Variable Importance Scores
+imps <- attStats(roughFixMod)
+imps2 = imps[imps$decision != 'Rejected', c('meanImp', 'decision')]
+head(imps2[order(-imps2$meanImp), ])  # descending sort
+
+# Plot variable importance
+plot(boruta_output, cex.axis=.7, las=2, xlab="", main="Variable Importance") 
+
+# 5.2 second, we use  Regularized Random Forest (RRF) to find features
+#install.packages('caret')
+#install.packages("listenv")
+set.seed(121)
+library(caret)
+library(listenv)
+# model RRF to find features
+rrfMod <- train(SY ~ X1+X2+X3+X4+X5+W1+W2+W3+W4+W5, data=df0, method="rpart")
+rrfImp <- varImp(rrfMod, scale=F)
+rrfImp
+plot(rrfImp, top = 10, main='Variable Importance')
+
+
+# 6. since we have obtained the X' and W' which contributes to SY=1 significantly,
+#   now, we use these X' and W' to match pairs. Before this, we need to create a dataset
+#   for those who in Z=1 in a similar way as we did for those who in Z=0. Again, this can
+#   be ignored in the real study since the dataset have existed.
+
+# 6.1 values of covariates, the values are set should be comsistent with the context
+N1 <-  500             # patients in Z=0, should be set according to background
+set.seed(234)
+X1 <- rnorm(N1, 42, 3)                 # covariate 1,  age of individuals
+set.seed(334)
+X2 <- rnorm(N1, 1.65, 0.02)                # covariate 2,  heights of individuals
+set.seed(434)
+X3 <- rnorm(N1, 0.35, 0.06)              # covariate 3,  lipids of individuals
+set.seed(534)
+X4 <- rnorm(N1, 90, 15)              # covariate 4,  blood pressure of individuals
+set.seed(634)
+X5 <- rnorm(N1, 55, 1.5)                # covariate 5,  weights of individuals
+
+# 6.2  values of clinical behaviours in Z=1, also should consistent with the context
+set.seed(734)
+W1 <- as.factor(rbinom(N1, 1, 0.4))    # clinical behaviour 1,  the lump thickening
+set.seed(834)
+W2<- as.factor(rbinom(N1, 1, 0.3))    # clinical behaviour 2,  changes of appearance of breast
+set.seed(934)
+W3<- rlnorm(N1, 1.2, 0.25)             # clinical behaviour 3,  the antigen concentration
+set.seed(1034)
+W4 <- rnorm(N1, 70, 5)              # clinical behaviour 4,  the Antibody concentration
+set.seed(1134)
+W5<- rnorm(N1, 55, 8)                 # clinical behaviour 5,  the protein concentration
+
+# 6.3  generate the dataset with the form like Table 6 in the manuscript
+S <- as.factor(rbinom(N1, 1, 0.24)) # we set the probability of S is 0.24 in Z=1,  only for simulation
+Y <- as.factor(rbinom(N1, 1, 0.45)) # we set the probability of Y=1 is 0.45 in Z=1,  only for simulation
+SY <- as.factor(rbinom(N1, 1, 0.4)) # we set the probability of SY is 0.4 in Z=1,  only for simulation
+# SY is not needed here because we do not model for principal strata, we only match the similar patients
+# in this stage, the similar indicates the patients have approximate or same values in X and W.
+
+df1 <- data.frame(X1=X1, X2=X2, X3=X3, X4=X4, X5=X5,
+                  W1=W1, W2=W2, W3=W3, W4=W4, W5=W5,
+                  S=S,Y=Y,SY=SY)
+colnames(df1) <- c('X1','X2','X3','X4','X5','W1','W2','W3','W4','W5','S','Y','SY')
+
+# combine the df0 with df1 and name it as df
+df <- rbind(df0, df1)
+
+
+# 7 approximate the estimand 
+# 7.1 first, approximate the estimand by using X1 + W5, which selected by Boruta and related cutoffs
+# Boruta + cutoffs : X2,X3,W1,W3
+
+sub_df0 <- subset(df0, df0$S == '0') # the patients belong to F in Z=0, i.e., the number of N00 
+table(sub_df0$Y) # number of patients with Y=1 in Z=0,F
+incidence_rate0 <- sum(sub_df0$Y == '1')/sum(sub_df0$S == '0') # the incidence rate in F in Z=0
+# calculate the mean value of X2,X3,W1 and W3 in F in Z=0
+sub_df0_M_X2 <- mean(sub_df0$X2) # mean value of X2, only for simulation, one can also use mode and other statistics.
+sub_df0_M_X3 <- mean(sub_df0$X3)
+sub_df0_M_W3 <- mean(sub_df0$W3)
+
+# set the values of cutoff to pair patients in Z=1 with those in Z=0
+# the values of cutoff are set arbitarily, and they are should be set by background
+# W1 are not consider in the following since it is a factor and this will not be problem in real.
+df1$F <- ifelse(abs(sub_df0_M_X2-df1$X2)<0.1 & abs(sub_df0_M_X3-df1$X3)<0.2 & abs(sub_df0_M_W3-df1$W3)<3, 'F', 'nF') # cutoffs to find F stratum
+
+
+# df1$F <- ifelse(abs(sub_df0$X2-df1$X2)<4 & abs(sub_df0$W5-df1$W5)<10, 'F', 'nF') # cutoffs to find F stratum
+
+sub_df1 <- subset(df1, df1$F == 'F') # the patients belong to F in Z=1
+table(sub_df1$F) # numeriate the number of pairs, i.e., the number of Z=1,F,Y(0)=1
+table(sub_df1$Y) # number of patients with Y=1 in Z=1,F
+incidence_rate1 <- sum(sub_df1$Y == '1')/sum(sub_df1$F == 'F') # the incidence rate in F in Z=1
+
+# calculate the estimand based on the above inference
+estimand_B <- incidence_rate0 - incidence_rate1
+
+
+# 7.2 second, approximate the estimand by using  X1+X2+X5+W1+W5, which selected by raprt.
+# rpart + cutoffs : X1 + X2 + X5 + W1 + W5
+
+sub_df0_M_X1 <- mean(sub_df0$X1) # mean value of X1, only for simulation, one can also use mode and other statistics.
+sub_df0_M_X2 <- mean(sub_df0$X2)
+sub_df0_M_X5 <- mean(sub_df0$X5)
+sub_df0_M_W5 <- mean(sub_df0$W5)
+
+df1$F <- ifelse(abs(sub_df0_M_X1-df1$X1)<10 & abs(sub_df0_M_X2-df1$X2)<0.1 & abs(sub_df0_M_X5-df1$X5) < 10 & abs(sub_df0_M_W5-df1$W5)<30, 'F', 'nF')
+sub_df1 <- subset(df1, df1$F == 'F') # the patients belong to F in Z=1
+table(sub_df1$F) # numeriate the number of pairs, i.e., the number of Z=1,F,Y(0)=1
+table(sub_df1$Y) # number of patients with Y=1 in Z=1,F
+incidence_rate1 <- sum(sub_df1$Y == '1')/sum(sub_df1$F == 'F') # the incidence rate in F in Z=1
+
+# calculate the estimand based on the above inference
+estimand_F <- incidence_rate0 - incidence_rate1
+
+
+# 8. the principal score method in this context.
+library(MatchIt)
+
+# 8.1 Fitting the principal score model
+# 8.1.1 use data in Z=0 only
+# i.e., values of the covariates in the above in Z=0.
+# we only use different indicators to distinguish the above method.
+set.seed(121)
+X1_ps0 <- rnorm(N0, 35, 2)                 # covariate 1,  age of individuals
+set.seed(221)
+X2_ps0 <- rnorm(N0, 1.6, 0.05)               # covariate 2,  heights of individuals
+set.seed(321)
+X3_ps0 <- rnorm(N0, 0.25, 0.05)                 # covariate 3,  lipids of individuals
+set.seed(421)
+X4_ps0 <- rnorm(N0, 80, 10)                # covariate 4,  blood pressure of individuals
+set.seed(521)
+X5_ps0 <- rnorm(N0, 45, 2.5)               # covariate 5,  weights of individuals
+set.seed(121)
+S_ps0 <- as.factor(rbinom(N0, 1, 0.4)) # we set the probability of S is 0.4 in Z=0,  only for simulation
+set.seed(121)
+Y_ps0 <- as.factor(rbinom(N0, 1, 0.65)) # we set the probability of Y=1 is 0.65 in Z=0,  only for simulation
+
+df_ps0 <- data.frame(X1_ps0=X1_ps0, X2_ps0=X2_ps0, X3_ps0=X3_ps0, X4_ps0=X4_ps0, X5_ps0=X5_ps0,
+                     S_ps0=S_ps0, Y_ps0=Y_ps0) # dataset for principal score method
+colnames(df_ps0) <- c('X1_ps0','X2_ps0','X3_ps0','X4_ps0','X5_ps0','S_ps0','Y_ps0')
+# conditions for generating S, only for simulation, no any particular reason for these conditions,
+# this conditions can be set according to the contexts, or no need to set since they are already existed
+# in real research.
+library(dplyr)
+df_ps0 <- mutate(df_ps0, S_ps0 = ifelse(X1_ps0 > 31 & X2_ps0 < 1.6 & X3_ps0 > 0.2 & X4_ps0 > 80 & X5_ps0 > 40,  
+                                    1, 0))  
+df_ps0$L <- ifelse(df_ps0$S_ps0 == 0, "F", "nF") # in Z=0, S=0 means "F" principal stratum
+
+# 8.1.2 the principal model using logistic regression 
+principal_F.fit <- glm(S_ps0~X1_ps0+X2_ps0+X3_ps0+X4_ps0+X5_ps0, data=df_ps0, family = binomial)
+
+# 8.1.3  Prepare the dataset of patients in Z=1
+N1 <-  500            # patients in Z=1, should be set according to background
+set.seed(234)
+X1_ps1 <- rnorm(N1, 42, 3)                 # covariate 1,  age of individuals
+set.seed(334)
+X2_ps1 <- rnorm(N1, 1.65, 0.02)                # covariate 2,  heights of individuals
+set.seed(434)
+X3_ps1 <- rnorm(N1, 0.35, 0.06)              # covariate 3,  lipids of individuals
+set.seed(534)
+X4_ps1 <- rnorm(N1, 90, 15)              # covariate 4,  blood pressure of individuals
+set.seed(634)
+X5_ps1 <- rnorm(N1, 55, 1.5)                # covariate 5,  weights of individuals
+S_ps1 <- as.factor(rbinom(N1, 1, 0.24)) # we set the probability of S is 0.24 in Z=1,  only for simulation
+Y_ps1 <- as.factor(rbinom(N1, 1, 0.45)) # we set the probability of Y=1 is 0.45 in Z=1,  only for simulation
+
+df_ps1 <- data.frame(X1_ps1=X1_ps1, X2_ps1=X2_ps1, X3_ps1=X3_ps1, X4_ps1=X4_ps1, X5_ps1=X5_ps1,
+                     S_ps1=S_ps1, Y_ps1=Y_ps1) # dataset for principal score method in Z=1
+colnames(df_ps1) <- c('X1_ps1','X2_ps1','X3_ps1','X4_ps1','X5_ps1','S_ps1','Y_ps1')
+# conditions for generating S, only for simulation, no any particular reason for these conditions,
+# this conditions can be set according to the contexts, or no need to set since they are already existed
+# in real research.
+# in our case, we set the same conditions for patients in Z=1.
+df_ps1 <- mutate(df_ps1, S_ps1 = ifelse(X1_ps1 > 40 & X2_ps1 < 1.67 & X3_ps1 > 0.3 & X4_ps1 > 85 & X5_ps1 > 52,  
+                                    1, 0))  
+# 8.1.4  Predicting the stratum for patients in Z=1, i.e., the probability of F stratum
+df_ps1$principal_score <- predict.glm(principal_F.fit, df_ps1, type = "response")
+
+# 8.1.5 Matching using the predicted principal scores
+m.out <- matchit(S_ps1~X1_ps1+X2_ps1+X3_ps1+X4_ps1+X5_ps1, data= df_ps1, method = "full", distance = df_ps1$principal_score)
+
+# 8.1.6 Check the covariate balance before and after matching.
+summary(m.out, standardize=TRUE)
+plot(summary(m.out))
+plot(m.out, type = "jitter", interactive = FALSE)
+
+# 8.1.7 plot for the results
+pacman::p_load(knitr, wakefield, MatchIt, tableone, captioner)
+library(pacman)
+library(optmatch)
+library(cobalt)
+cowplot::plot_grid(bal.plot(m.out, var.name = 'X1_ps1', which = 'both', grid=TRUE),
+                   bal.plot(m.out, var.name = 'X2_ps1', which = 'both', grid=TRUE),
+                   bal.plot(m.out, var.name = 'X3_ps1', which = 'both', grid=TRUE),
+                   bal.plot(m.out, var.name = 'X4_ps1', which = 'both', grid=TRUE),
+                   bal.plot(m.out, var.name = 'X5_ps1', which = 'both', grid=TRUE),
+                   bal.plot(m.out, var.name = 'X1_ps1', which = 'both', grid=TRUE, type="ecdf"),
+                   bal.plot(m.out, var.name = 'X2_ps1', which = 'both', grid=TRUE, type="ecdf"),
+                   bal.plot(m.out, var.name = 'X3_ps1', which = 'both', grid=TRUE, type="ecdf"),
+                   bal.plot(m.out, var.name = 'X4_ps1', which = 'both', grid=TRUE, type="ecdf"),
+                   bal.plot(m.out, var.name = 'X5_ps1', which = 'both', grid=TRUE, type="ecdf"),
+                   # more parameters to adjust
+                   love.plot(bal.tab(m.out, m.threshold=0.1),
+                             stat = "mean.diffs",
+                             grid=TRUE,
+                             stars="raw",
+                             abs = F)
+)
+
+# 8.1.8 definition of the estimand 
+sub_df_ps0 <- subset(df_ps0, df_ps0$S_ps0 == '0') # the number of patients belong to F in Z=0
+table(sub_df_ps0$Y_ps0 == '1')
+incidence_rate0 <- sum(sub_df_ps0$Y_ps0 == '1')/sum(sub_df_ps0$S_ps0 == '0') # the incidence rate in F in Z=0
+
+
+df_ps1$F <- ifelse(df_ps1$principal_score > 0.1, 'F', 'nF') # cutoffs to find F stratum, according to principal score
+sub_df_ps1 <- subset(df_ps1, df_ps1$F == 'F') # the patients belong to F in Z=1
+table(sub_df_ps1$F) # numeriate the number of pairs, i.e., the number of Z=1,F,Y(0)=1
+table(sub_df_ps1$Y_ps1) # number of patients with Y=1 in Z=1,F
+incidence_rate1 <- sum(sub_df_ps1$Y_ps1 == '1')/sum(sub_df_ps1$F == 'F') # the incidence rate in F in Z=1
+
+# 8.1.9 calculate the estimand based on the above inference
+estimand_ps <- incidence_rate0 - incidence_rate1
+
+
+# 9. calculate the mse
+#install.packages("plotrix")
+library(plotrix)
+
+# the std.error of Z=0
+df0_FY <- c(as.numeric(sub_df0$Y)) 
+std.error(df0_FY)
+# 9.1 the std.error of Z=1 by using Boruta algorithm
+df1$F <- ifelse(abs(sub_df0_M_X2-df1$X2)<0.1 & abs(sub_df0_M_X3-df1$X3)<0.2 & abs(sub_df0_M_W3-df1$W3)<3, 'F', 'nF') # cutoffs to find F stratum
+sub_dfB <- subset(df1, df1$F == 'F') # the patients belong to F in Z=1
+dfB_FY <- c(as.numeric(sub_dfB$Y))
+std.error(dfB_FY)
+# the difference of Z=1 and Z=0 under Boruta algorithm
+estimand_se_B0 <- abs(std.error(df0_FY) - std.error(dfB_FY))
+estimand_se_B0
+
+# 9.2 the difference of Z=1 and Z=0 under rpart algorithm
+df1$F <- ifelse(abs(sub_df0_M_X1-df1$X1)<5 & abs(sub_df0_M_X2-df1$X2)<0.1 & abs(sub_df0_M_X5-df1$X5) < 9 & abs(sub_df0_M_W5-df1$W5)<25, 'F', 'nF')
+sub_dfR<- subset(df1, df1$F == 'F') # the patients belong to F in Z=1
+dfR_FY <- c(as.numeric(sub_dfR$Y))
+std.error(dfR_FY)
+estimand_se_R0 <- abs(std.error(df0_FY) - std.error(dfR_FY))
+estimand_se_R0
+
+
+# 9.3 the difference of Z=1 and Z=0 under the principal scores method
+df_ps_0_FY <- c(as.numeric(sub_df_ps0$Y_ps0))
+std.error(df_ps_0_FY )
+df_ps_1_FY <- c(as.numeric(sub_df_ps1$Y_ps1))
+std.error(df_ps_1_FY)
+estimand_ps_01 <- abs(std.error(df_ps_0_FY) - std.error(df_ps_1_FY))
+estimand_ps_01
