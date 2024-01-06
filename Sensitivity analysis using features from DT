@@ -1,0 +1,394 @@
+################################################################################
+# Considering that the results will be affected by the variables used to modeling,
+# we exploring the different algorithms (Decision Tree in the paper). Also, one can
+# use any reasonable algorithms to do this under the specific context, which is not
+# the focus of this paper, but it is interesting to try to other algorithms.
+
+
+# 1. install and library the related packages to conduct simulation
+library(forcats)
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+library(mvtnorm)
+library(igraph)
+library(plyr)  
+library(tidyr)
+library(mice)
+library(autoReg)
+library(rms)
+library(caret)
+library(pROC)
+library(rmda)
+library(dplyr)
+library(rrtable)
+library(modelr)
+library(broom)
+
+
+# 2. basic settings for the simulation
+# 2.1 sample sizes for three situations
+# we set three sample size for sensitivity analysis, this is according to background
+N0 <- 500   # situation1
+#N0 <- 1000 # situation2
+#N0 <- 2000 # situation3
+
+# 2.2 set variables for predicting, which includes predictors 
+# some variables are the same as primary analysis in the paper, 
+# others for sensitivity analysis. predictors and nonpredictors are
+# determined by algorithms for selection (given the context)
+
+# 3 set values for the above variables 
+# 3.1 the predicators and non predicators
+set.seed(121)
+age <- round(rnorm(N0, 30, 5))                 # covariate 1,  age of individuals
+set.seed(221)
+height <- round(rnorm(N0, 160, 5))             # covariate 2,  heights of individuals
+set.seed(321)
+lipid <- round(rnorm(N0, 25, 4.5))           # covariate 3,  lipids of individuals
+set.seed(421)
+blood_pressure <- round(rnorm(N0, 80, 10))                # covariate 4,  blood pressure of individuals
+set.seed(521)
+weights <- round(rnorm(N0, 60, 5))              # covariate 5,  weights of individuals
+
+set.seed(121)
+lump_thickness <- as.factor(rbinom(N0, 1, 0.25))  # clinical behaviour 1,  the lump thickening
+set.seed(221)
+appearance <- as.factor(rbinom(N0, 1, 0.3))    # clinical behaviour 2,  changes of appearance of breast
+set.seed(321)
+antigen <- round(rnorm(N0, 45, 4))               # clinical behaviour 3,  the antigen concentration
+set.seed(421)
+antibody <- round(rnorm(N0, 50, 5))             # clinical behaviour 4,  the antibody concentration
+set.seed(521)
+protein <- round(rnorm(N0, 45, 5))               # clinical behaviour 5,  the protein concentration
+
+
+df00 <- data.frame(X1=age, X2=height , X3=lipid, X4=blood_pressure, X5=weights,
+                   W1=lump_thickness, W2=appearance, W3=antigen, W4=antibody, W5=protein
+)
+colnames(df00) <- c('X1','X2','X3','X4','X5','W1','W2','W3','W4','W5')
+
+# 3.2 the outcome
+set.seed(121)
+S <- as.factor(rbinom(N0, 1, 0.4)) # we set the probability of S is 0.4 in Z=0,
+set.seed(121)
+Y <- as.factor(rbinom(N0, 1, 0.65)) # we set the probability of Y=1 is 0.65 in Z=0,
+SY <- as.factor(ifelse(blood_pressure > 74 & antigen < 47 & antibody > 42, 1, 0))
+
+# 3.3 the dataframe in Z=0 for constructing the regression model
+df0 <- data.frame(X1=age, X2=height , X3=lipid, X4=blood_pressure, X5=weights,
+                  W1=lump_thickness, W2=appearance, W3=antigen, W4=antibody, W5=protein,
+                  S=S, Y=Y, SY=SY)
+colnames(df0) <- c('X1','X2','X3','X4','X5','W1','W2','W3','W4','W5','S','Y','SY')
+
+# 4. Using the algorithm to select the predictors, for simplicity, we use DT to analysis.
+# model to find features
+set.seed(11111)
+rrfMod <- train(SY ~ X1+X2+X3+X4+X5+W1+W2+W3+W4+W5, data=df0, method="rpart")
+rrfImp <- varImp(rrfMod, scale=F)
+rrfImp
+plot(rrfImp, top = 10, main='Variable Importance')
+
+
+# 5. construct the regression model in four situations to explore the fitness.
+# 5.1 use different predictors to model the outcome 
+# variables selected by the DT algorithm
+# before this, we separate the data set into trianning data set and test data set.
+ind <- createDataPartition(df0$SY,
+                           p=0.7,
+                           list = FALSE)
+df0_training <- df0[ind,] # the training data set, which proportion is 0.7
+df0_test <- df0[-ind,]    # the test data set, whcih proportion is 0.3
+
+# using X3,X4,W3,W4 as predictors, the most significant variables
+model_1 <- glm(SY ~ X3+X4+W3+W4, family = 'binomial', data=df0_training)
+# using all variables as predictors
+model_2 <- glm(SY ~ ., family = 'binomial', data=df0_training)
+# using only covariates as predictors
+model_3 <- glm(SY ~ X1+X2+X3+X4+X5, family = 'binomial', data=df0_training)
+
+# 5.2 show the outline of the data set, this is not necessary, but helpful for know the data set briefly.
+ft <- gaze(SY ~.,data=df0_training) %>% myft()
+print(ft)
+
+# 5.3 access the fitness of the model_1 by various measurements
+# initially, for calculation,here, we use the SY_hat to the following analysis
+# calculating the measurements for model_1
+
+# AIC, BIC
+glance(model_1)
+
+glance(model_2)
+
+glance(model_3)
+
+
+###### another way to calculate the above measurements
+#predictions <- model_1 %>% 
+#  predict(df0)
+#data.frame(
+#  R2 = R2(predictions, df0$SY),
+#  RMSE = RMSE(predictions, df0$SY),
+#  MAE = MAE(predictions, df0$SYy)
+#)
+##########
+
+# 5.4 predict using internal data, i.e., the df0_test.
+# 5.4.1 calculating the auc, its confidence interval, and DCA for model_1
+# predictive model
+test_pred <- predict(model_1,
+                     newdata=df0_test,
+                     type="link")
+
+# auc and confidence interval
+test_roc <- roc(df0_test$SY,test_pred)
+auc(test_roc)
+ci(test_roc)
+plot(test_roc)
+
+# calibration
+test_fit <- lrm(df0_test$SY~test_pred,
+                data = df0_test,
+                x=TRUE,y=TRUE)
+test_cal <- calibrate(test_fit,
+                      data=df0_test,
+                      B=100)
+plot(test_cal)
+
+# DCA curve
+df0_test$pred <- test_pred
+
+df0_test$SY <- as.numeric(df0_test$SY)-1
+test_dc <- decision_curve(SY~pred,
+                          data = df0_test)
+plot_decision_curve(test_dc,
+                    curve.names = "Model",
+                    confidence.intervals = FALSE)
+
+plot_clinical_impact(test_dc,
+                     cost.benefit.axis = FALSE,
+                     confidence.intervals = FALSE)
+
+
+# 5.4.2 calculating the auc, its confidence interval, and DCA for model_2
+# predictive model
+test_pred2 <- predict(model_2,
+                      newdata=df0_test,
+                      type="link")
+
+# auc and confidence interval
+test_roc2 <- roc(df0_test$SY,test_pred2)
+auc(test_roc2)
+ci(test_roc2)
+plot(test_roc2)
+
+# calibration
+test_fit2 <- lrm(df0_test$SY~test_pred2,
+                 data = df0_test,
+                 x=TRUE,y=TRUE)
+test_cal2 <- calibrate(test_fit2,
+                       data=df0_test,
+                       B=100)
+plot(test_cal2)
+
+# DCA curve
+df0_test$pred2 <- test_pred2
+
+test_dc2 <- decision_curve(SY~pred2,
+                           data = df0_test)
+plot_decision_curve(test_dc2,
+                    curve.names = "Model",
+                    confidence.intervals = FALSE)
+
+plot_clinical_impact(test_dc2,
+                     cost.benefit.axis = FALSE,
+                     confidence.intervals = FALSE)
+
+
+# 5.4.3 calculating the auc, its confidence interval, and DCA for model_3
+# predictive model
+test_pred3<- predict(model_3,
+                     newdata=df0_test,
+                     type="link")
+
+# auc and confidence interval
+test_roc3 <- roc(df0_test$SY,test_pred3)
+auc(test_roc3)
+ci(test_roc3)
+plot(test_roc3)
+
+# calibration
+test_fit3 <- lrm(df0_test$SY~test_pred3,
+                 data = df0_test,
+                 x=TRUE,y=TRUE)
+test_cal3 <- calibrate(test_fit3,
+                       data=df0_test,
+                       B=100)
+plot(test_cal3)
+
+# DCA curve
+df0_test$pred3 <- test_pred3
+
+test_dc3 <- decision_curve(SY~pred3,
+                           data = df0_test)
+plot_decision_curve(test_dc3,
+                    curve.names = "Model",
+                    confidence.intervals = FALSE)
+
+plot_clinical_impact(test_dc3,
+                     cost.benefit.axis = FALSE,
+                     confidence.intervals = FALSE)
+
+
+# 6. explore the predictive performance in Z=1.
+# 6.1 create the data set in Z=1.
+N1 <- 500
+#N1 <- 1000 # situation2
+#N1 <- 2000 # situation3
+# values of covariates, the values are set should be comsistent with the context
+set.seed(1001)
+age <- round(rnorm(N0, 40, 5))                 # covariate 1,  age of individuals
+set.seed(1002)
+height <- round(rnorm(N0, 165, 10))             # covariate 2,  heights of individuals
+set.seed(1003)
+lipid <- round(rnorm(N0, 20, 5))           # covariate 3,  lipids of individuals
+set.seed(1004)
+blood_pressure <- round(rnorm(N0, 90, 5))                # covariate 4,  blood pressure of individuals
+set.seed(1005)
+weights <- round(rnorm(N0, 65, 5))              # covariate 5,  weights of individuals
+
+set.seed(1101)
+lump_thickness <- as.factor(rbinom(N0, 1, 0.15))  # clinical behaviour 1,  the lump thickening
+set.seed(1102)
+appearance <- as.factor(rbinom(N0, 1, 0.1))    # clinical behaviour 2,  changes of appearance of breast
+set.seed(1103)
+antigen <- round(rnorm(N0, 50, 3))               # clinical behaviour 3,  the antigen concentration
+set.seed(1104)
+antibody <- round(rnorm(N0, 55, 5))             # clinical behaviour 4,  the antibody concentration
+set.seed(1105)
+protein <- round(rnorm(N0, 50, 5))               # clinical behaviour 5,  the protein concentration
+
+# generate the dataset with the form like Table 6 in the manuscript
+S <- as.factor(rbinom(N1, 1, 0.24)) # we set the probability of S is 0.24 in Z=1,  only for simulation
+Y <- as.factor(rbinom(N1, 1, 0.45)) # we set the probability of Y=1 is 0.45 in Z=1,  only for simulation
+
+df11 <- data.frame(X1=age, X2=height , X3=lipid, X4=blood_pressure, X5=weights,
+                   W1=lump_thickness, W2=appearance, W3=antigen, W4=antibody, W5=protein
+)
+colnames(df11) <- c('X1','X2','X3','X4','X5','W1','W2','W3','W4','W5')
+
+SY <- as.factor(ifelse(blood_pressure > 86 & antigen < 52 & antibody > 53, 1, 0))
+
+# 6.2 the data frame in Z=1 for construct the regression model
+df1 <- data.frame(X1=age, X2=height , X3=lipid, X4=blood_pressure, X5=weights,
+                  W1=lump_thickness, W2=appearance, W3=antigen, W4=antibody, W5=protein,
+                  S=S, Y=Y, SY=SY)
+colnames(df1) <- c('X1','X2','X3','X4','X5','W1','W2','W3','W4','W5','S','Y','SY')
+# SY is not needed here because we do not model for principal strata, we only match the similar patients
+# in this stage, the similar indicates the patients have approximate or same values in X and W.
+
+# 6.3 predict using extra data, i.e., the df1 for patients in Z=1.
+# 6.3.1 calculating the auc, its confidence interval, and DCA for model_1
+# predictive model
+test_pred <- predict(model_1,
+                     newdata=df1,
+                     type="link")
+
+# auc and confidence interval
+test_roc <- roc(df1$SY,test_pred)
+auc(test_roc)
+ci(test_roc)
+plot(test_roc)
+
+# calibration
+test_fit <- lrm(df1$SY~test_pred,
+                data = df1,
+                x=TRUE,y=TRUE)
+test_cal <- calibrate(test_fit,
+                      data=df1,
+                      B=100)
+plot(test_cal)
+
+# DCA curve
+df1$pred <- test_pred
+
+df1$SY <- as.numeric(df1$SY)-1
+test_dc <- decision_curve(SY~pred,
+                          data = df1)
+plot_decision_curve(test_dc,
+                    curve.names = "Model",
+                    confidence.intervals = FALSE)
+
+plot_clinical_impact(test_dc,
+                     cost.benefit.axis = FALSE,
+                     confidence.intervals = FALSE)
+
+
+# 6.3.2 calculating the auc, its confidence interval, and DCA for model_2
+# predictive model
+test_pred2 <- predict(model_2,
+                      newdata=df1,
+                      type="link")
+
+# auc and confidence interval
+test_roc2 <- roc(df1$SY,test_pred2)
+auc(test_roc2)
+ci(test_roc2)
+plot(test_roc2)
+
+# calibration
+test_fit2 <- lrm(df1$SY~test_pred2,
+                 data = df1,
+                 x=TRUE,y=TRUE)
+test_cal2 <- calibrate(test_fit2,
+                       data=df1,
+                       B=100)
+plot(test_cal2)
+
+# DCA curve
+df1$pred2 <- test_pred2
+
+test_dc2 <- decision_curve(SY~pred2,
+                           data = df1)
+plot_decision_curve(test_dc2,
+                    curve.names = "Model",
+                    confidence.intervals = FALSE)
+
+plot_clinical_impact(test_dc2,
+                     cost.benefit.axis = FALSE,
+                     confidence.intervals = FALSE)
+
+
+# 6.3.3 calculating the auc, its confidence interval, and DCA for model_3
+# predictive model
+test_pred3<- predict(model_3,
+                     newdata=df1,
+                     type="link")
+
+# auc and confidence interval
+test_roc3 <- roc(df1$SY,test_pred3)
+auc(test_roc3)
+ci(test_roc3)
+plot(test_roc3)
+
+# calibration
+test_fit3 <- lrm(df1$SY~test_pred3,
+                 data = df1,
+                 x=TRUE,y=TRUE)
+test_cal3 <- calibrate(test_fit3,
+                       data=df1,
+                       B=100)
+plot(test_cal3)
+
+# DCA curve
+df1$pred3 <- test_pred3
+
+test_dc3 <- decision_curve(SY~pred3,
+                           data = df1)
+plot_decision_curve(test_dc3,
+                    curve.names = "Model",
+                    confidence.intervals = FALSE)
+
+plot_clinical_impact(test_dc3,
+                     cost.benefit.axis = FALSE,
+                     confidence.intervals = FALSE)
