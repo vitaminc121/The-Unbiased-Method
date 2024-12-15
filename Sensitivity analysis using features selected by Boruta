@@ -66,18 +66,18 @@ set.seed(121)
 S <- as.factor(rbinom(N0, 1, 0.4)) # we set the probability of S is 0.4 in Z=0,
 set.seed(121)
 Y <- as.factor(rbinom(N0, 1, 0.65)) # we set the probability of Y=1 is 0.65 in Z=0,
-SY <- as.factor(ifelse(weights > 58 & protein <50 & antibody > 45, 1, 0))
+T <- as.factor(ifelse(weights > 58 & protein <50 & antibody > 45, 1, 0))
 
 # 3.3 the dataframe in Z=0 for constructing the regression model
 df0 <- data.frame(X1=age, X2=height , X3=lipid, X4=blood_pressure, X5=weights,
                   W1=lump_thickness, W2=appearance, W3=antigen, W4=antibody, W5=protein,
-                  S=S, Y=Y, SY=SY)
-colnames(df0) <- c('X1','X2','X3','X4','X5','W1','W2','W3','W4','W5','S','Y','SY')
+                  S=S, Y=Y, T=T)
+colnames(df0) <- c('X1','X2','X3','X4','X5','W1','W2','W3','W4','W5','S','Y','T')
 
 # 4. Using the algorithm to selectb the predicators, for simplicity, we use Boruta to analysis.
 library(Boruta)  # load the package
 set.seed(2023)  # for reproducibility
-boruta_output <- Boruta(SY ~ X1+X2+X3+X4+X5+W1+W2+W3+W4+W5, data=na.omit(df0), doTrace=0)
+boruta_output <- Boruta(T ~ X1+X2+X3+X4+X5+W1+W2+W3+W4+W5, data=na.omit(df0), doTrace=0)
 
 # find features which have the significant or potential variable
 boruta_signif <- getSelectedAttributes(boruta_output, withTentative = TRUE)
@@ -102,25 +102,25 @@ plot(boruta_output, cex.axis=.7, las=2, xlab="", main="Variable Importance")
 # 5.1 use different predictors to model the outcome 
 # variables selected by the Boruta algorithm
 # before this, we seperate the data set into trianing data set and test data set.
-ind <- createDataPartition(df0$SY,
+ind <- createDataPartition(df0$T,
                            p=0.7,
                            list = FALSE)
 df0_training <- df0[ind,] # the training data set, which proportion is 0.7
 df0_test <- df0[-ind,]    # the test data set, whcih proportion is 0.3
 
 # using X4,X5,W4,W5 as predictors, the most significant variables
-model_1 <- glm(SY ~ X4+X5+W4+W5, family = 'binomial', data=df0_training)
+model_1 <- glm(T ~ X4+X5+W4+W5, family = 'binomial', data=df0_training)
 # using all variables as predictors
-model_2 <- glm(SY ~ ., family = 'binomial', data=df0_training)
+model_2 <- glm(T ~ ., family = 'binomial', data=df0_training)
 # using only covariates as predictors
-model_3 <- glm(SY ~ X1+X2+X3+X4+X5, family = 'binomial', data=df0_training)
+model_3 <- glm(T ~ X1+X2+X3+X4+X5, family = 'binomial', data=df0_training)
 
 # 5.2 show the outline of the data set, this is not necessary, but helpful for know the data set briefly.
-ft <- gaze(SY ~.,data=df0_training) %>% myft()
+ft <- gaze(T ~.,data=df0_training) %>% myft()
 print(ft)
 
 # 5.3 access the fitness of the model_1 by various measurements
-# initially, for calculation,here, we use the SY_hat to the following analysis
+# initially, for calculation,here, we use the T_hat to the following analysis
 # calculating the measurements for model_1
 # AIC, BIC, for evaluating the fitness of models.
 glance(model_1)
@@ -134,9 +134,9 @@ glance(model_3)
 #predictions <- model_1 %>% 
 #  predict(df0)
 #data.frame(
-#  R2 = R2(predictions, df0$SY),
-#  RMSE = RMSE(predictions, df0$SY),
-#  MAE = MAE(predictions, df0$SYy)
+#  R2 = R2(predictions, df0$T),
+#  RMSE = RMSE(predictions, df0$T),
+#  MAE = MAE(predictions, df0$Ty)
 #)
 ##########
 
@@ -148,13 +148,13 @@ test_pred <- predict(model_1,
                      type="link")
 
 # auc and confidence interval
-test_roc <- roc(df0_test$SY,test_pred)
+test_roc <- roc(df0_test$T,test_pred)
 auc(test_roc)
 ci(test_roc)
 plot(test_roc)
 
 # calibration
-test_fit <- lrm(df0_test$SY~test_pred,
+test_fit <- lrm(df0_test$T~test_pred,
                 data = df0_test,
                 x=TRUE,y=TRUE)
 test_cal <- calibrate(test_fit,
@@ -165,8 +165,8 @@ plot(test_cal)
 # DCA curve
 df0_test$pred <- test_pred
 
-df0_test$SY <- as.numeric(df0_test$SY)-1
-test_dc <- decision_curve(SY~pred,
+df0_test$SY <- as.numeric(df0_test$T)-1
+test_dc <- decision_curve(T~pred,
                           data = df0_test)
 plot_decision_curve(test_dc,
                     curve.names = "Model",
@@ -184,13 +184,13 @@ test_pred2 <- predict(model_2,
                       type="link")
 
 # auc and confidence interval
-test_roc2 <- roc(df0_test$SY,test_pred2)
+test_roc2 <- roc(df0_test$T,test_pred2)
 auc(test_roc2)
 ci(test_roc2)
 plot(test_roc2)
 
 # calibration
-test_fit2 <- lrm(df0_test$SY~test_pred2,
+test_fit2 <- lrm(df0_test$T~test_pred2,
                  data = df0_test,
                  x=TRUE,y=TRUE)
 test_cal2 <- calibrate(test_fit2,
@@ -201,7 +201,7 @@ plot(test_cal2)
 # DCA curve
 df0_test$pred2 <- test_pred2
 
-test_dc2 <- decision_curve(SY~pred2,
+test_dc2 <- decision_curve(T~pred2,
                            data = df0_test)
 plot_decision_curve(test_dc2,
                     curve.names = "Model",
@@ -219,13 +219,13 @@ test_pred3<- predict(model_3,
                      type="link")
 
 # auc and confidence interval
-test_roc3 <- roc(df0_test$SY,test_pred3)
+test_roc3 <- roc(df0_test$T,test_pred3)
 auc(test_roc3)
 ci(test_roc3)
 plot(test_roc3)
 
 # calibration
-test_fit3 <- lrm(df0_test$SY~test_pred3,
+test_fit3 <- lrm(df0_test$T~test_pred3,
                  data = df0_test,
                  x=TRUE,y=TRUE)
 test_cal3 <- calibrate(test_fit3,
@@ -236,7 +236,7 @@ plot(test_cal3)
 # DCA curve
 df0_test$pred3 <- test_pred3
 
-test_dc3 <- decision_curve(SY~pred3,
+test_dc3 <- decision_curve(T~pred3,
                            data = df0_test)
 plot_decision_curve(test_dc3,
                     curve.names = "Model",
@@ -287,14 +287,14 @@ df11 <- data.frame(X1=age, X2=height , X3=lipid, X4=blood_pressure, X5=weights,
 )
 colnames(df11) <- c('X1','X2','X3','X4','X5','W1','W2','W3','W4','W5')
 
-SY <- as.factor(ifelse(weights > 64 & protein < 58 & antibody > 47, 1, 0))
+T <- as.factor(ifelse(weights > 64 & protein < 58 & antibody > 47, 1, 0))
 
 # 6.2 the data frame in Z=1 for construct the regression model
 df1 <- data.frame(X1=age, X2=height , X3=lipid, X4=blood_pressure, X5=weights,
                   W1=lump_thickness, W2=appearance, W3=antigen, W4=antibody, W5=protein,
                   S=S, Y=Y, SY=SY)
-colnames(df1) <- c('X1','X2','X3','X4','X5','W1','W2','W3','W4','W5','S','Y','SY')
-# SY is not needed here because we do not model for principal strata, we only match the similar patients
+colnames(df1) <- c('X1','X2','X3','X4','X5','W1','W2','W3','W4','W5','S','Y','T')
+# T is not needed here because we do not model for principal strata, we only match the similar patients
 # in this stage, the similar indicates the patients have approximate or same values in X and W.
 
 # 6.3 predict using extra data, i.e., the df1 for patients in Z=1.
@@ -305,13 +305,13 @@ test_pred <- predict(model_1,
                      type="link")
 
 # auc and confidence interval
-test_roc <- roc(df1$SY,test_pred)
+test_roc <- roc(df1$T,test_pred)
 auc(test_roc)
 ci(test_roc)
 plot(test_roc)
 
 # calibration
-test_fit <- lrm(df1$SY~test_pred,
+test_fit <- lrm(df1$T~test_pred,
                 data = df1,
                 x=TRUE,y=TRUE)
 test_cal <- calibrate(test_fit,
@@ -322,8 +322,8 @@ plot(test_cal)
 # DCA curve
 df1$pred <- test_pred
 
-df1$SY <- as.numeric(df1$SY)-1
-test_dc <- decision_curve(SY~pred,
+df1$SY <- as.numeric(df1$T)-1
+test_dc <- decision_curve(T~pred,
                           data = df1)
 plot_decision_curve(test_dc,
                     curve.names = "Model",
@@ -341,13 +341,13 @@ test_pred2 <- predict(model_2,
                      type="link")
 
 # auc and confidence interval
-test_roc2 <- roc(df1$SY,test_pred2)
+test_roc2 <- roc(df1$T,test_pred2)
 auc(test_roc2)
 ci(test_roc2)
 plot(test_roc2)
 
 # calibration
-test_fit2 <- lrm(df1$SY~test_pred2,
+test_fit2 <- lrm(df1$T~test_pred2,
                 data = df1,
                 x=TRUE,y=TRUE)
 test_cal2 <- calibrate(test_fit2,
@@ -358,7 +358,7 @@ plot(test_cal2)
 # DCA curve
 df1$pred2 <- test_pred2
 
-test_dc2 <- decision_curve(SY~pred2,
+test_dc2 <- decision_curve(T~pred2,
                           data = df1)
 plot_decision_curve(test_dc2,
                     curve.names = "Model",
@@ -376,13 +376,13 @@ test_pred3<- predict(model_3,
                       type="link")
 
 # auc and confidence interval
-test_roc3 <- roc(df1$SY,test_pred3)
+test_roc3 <- roc(df1$T,test_pred3)
 auc(test_roc3)
 ci(test_roc3)
 plot(test_roc3)
 
 # calibration
-test_fit3 <- lrm(df1$SY~test_pred3,
+test_fit3 <- lrm(df1$T~test_pred3,
                  data = df1,
                  x=TRUE,y=TRUE)
 test_cal3 <- calibrate(test_fit3,
@@ -393,7 +393,7 @@ plot(test_cal3)
 # DCA curve
 df1$pred3 <- test_pred3
 
-test_dc3 <- decision_curve(SY~pred3,
+test_dc3 <- decision_curve(T~pred3,
                            data = df1)
 plot_decision_curve(test_dc3,
                     curve.names = "Model",
